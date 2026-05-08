@@ -103,6 +103,10 @@ from pcfbench.tools.material_library import (
 _RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
 
 
+def _model_slug(model_id: str) -> str:
+    return model_id.replace("/", "_").replace("@", "_").replace(":", "__")
+
+
 # --- Per-item scorers (delegate to pcfbench.scoring.*) -----------
 # Each takes the agent's typed output + the dataset's ``expected_output`` dict
 # and returns a flat dict[score_name -> value | None] suitable for JSONL +
@@ -815,7 +819,7 @@ async def async_main() -> None:
     out = (
         args.output
         or _RUNS_DIR
-        / f"{args.eval_name}__{args.model.replace('/', '_').replace('@', '_')}.jsonl"
+        / f"{args.eval_name}__{_model_slug(args.model)}.jsonl"
     )
     summary = await run_eval(
         eval_name=args.eval_name,

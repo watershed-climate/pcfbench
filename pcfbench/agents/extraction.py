@@ -7,10 +7,15 @@ from typing import Annotated
 
 import pydantic as pyd
 from pydantic import Field
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import RunContext
 from pydantic_ai import Tool as PydanticAITool
 
-from pcfbench.agents._common import run_singleshot
+from pcfbench.agents._task_agent import (
+    AGENT_SDK_PREFIX,
+    AgentSDKSingleshotAgent,
+    PydanticAISingleshotAgent,
+    TaskAgent,
+)
 from pcfbench.models.factory import build_agent
 from pcfbench.tools.ecoinvent_tools import (
     SubmitTerminated,
@@ -95,7 +100,7 @@ async def _submit_extraction(
 
 def build_extraction_agent(
     *, model_id: str, system_prompt: str = EXTRACTION_SYSTEM_PROMPT
-) -> Agent:
+) -> TaskAgent:
     """Build the extraction agent.
 
     The default ``system_prompt`` is the no-hallucinate, document-grounded
@@ -103,18 +108,30 @@ def build_extraction_agent(
     ``EXTRACTION_QUERY_ONLY_SYSTEM_PROMPT`` for the
     ``pcfbench_extraction_query_only_estimate`` ablation.
     """
+    if model_id.startswith(AGENT_SDK_PREFIX):
+        return AgentSDKSingleshotAgent(
+            model_id=model_id,
+            system_prompt=system_prompt,
+            output_type=ExtractionOutput,
+        )
     submit_tool = PydanticAITool(
         _submit_extraction,
         name="submit_extraction",
         description="Submit all extracted numerical claims.",
     )
-    return build_agent(
+    agent = build_agent(
         model_id=model_id,
         agentic=False,
         output_type=str,
         system_prompt=system_prompt,
         tools=[submit_tool],
         deps_type=_Deps,
+    )
+    return PydanticAISingleshotAgent(
+        agent=agent,
+        make_deps=_Deps,
+        get_output=lambda d: d.submitted,
+        output_recovered=lambda d: d.submitted is not None,
     )
 
 
@@ -127,7 +144,7 @@ def _build_user_prompt(inp: ExtractionInput, *, include_document: bool) -> str:
 
 async def run_extraction(
     *,
-    agent: Agent,
+    agent: TaskAgent,
     inp: ExtractionInput,
     include_document: bool = True,
 ) -> ExtractionOutput | None:
@@ -137,11 +154,4 @@ async def run_extraction(
     prompt -- the model only sees the query, used by the
     ``pcfbench_extraction_query_only_estimate`` ablation.
     """
-    deps = _Deps()
-    await run_singleshot(
-        agent=agent,
-        user_prompt=_build_user_prompt(inp, include_document=include_document),
-        deps=deps,
-        output_recovered=lambda d: d.submitted is not None,
-    )
-    return deps.submitted
+    return await agent.run_task(_build_user_prompt(inp, include_document=include_document))

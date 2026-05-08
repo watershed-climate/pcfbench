@@ -1,4 +1,4 @@
-"""Sweep 8 models × 5 evals (40 runs). Writes JSONL per (eval, model).
+"""Sweep default model set × 5 evals. Writes JSONL per (eval, model).
 
 Concurrency is per-eval (8 items in parallel within a run); runs are
 sequential to keep API rate limits manageable. Total wall-clock ~1-2hr.
@@ -14,6 +14,7 @@ from pathlib import Path
 
 from pcfbench.evals.runner import (
     _DEFAULT_DATA_DIR,
+    _model_slug,
     run_eval,
 )
 
@@ -28,6 +29,14 @@ MODELS_8 = [
     "deepseek-ai/deepseek-v3.2-maas",
 ]
 
+AGENT_SDK_MODELS = [
+    "agent-sdk:claude-haiku-4-5",
+    "agent-sdk:claude-sonnet-4-6",
+    "agent-sdk:claude-opus-4-6",
+]
+
+MODELS_WITH_AGENT_SDK = MODELS_8 + AGENT_SDK_MODELS
+
 EVALS_5 = [
     "pcfbench_decomposition",
     "pcfbench_triage",
@@ -41,7 +50,7 @@ _RUNS_DIR = Path(__file__).resolve().parent / "runs"
 
 async def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--models", nargs="*", default=MODELS_8)
+    parser.add_argument("--models", nargs="*", default=MODELS_WITH_AGENT_SDK)
     parser.add_argument("--evals", nargs="*", default=EVALS_5)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--concurrency", type=int, default=8)
@@ -59,8 +68,7 @@ async def main() -> None:
     for ev in args.evals:
         for model in args.models:
             done += 1
-            slug = model.replace("/", "_").replace("@", "_")
-            output = _RUNS_DIR / f"{ev}__{slug}.jsonl"
+            output = _RUNS_DIR / f"{ev}__{_model_slug(model)}.jsonl"
             print(f"\n>>> [{done}/{total}] {ev} | {model}", flush=True)
             t0 = time.perf_counter()
             try:

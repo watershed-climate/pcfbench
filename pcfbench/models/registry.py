@@ -25,6 +25,14 @@ GEMINI_MODELS = frozenset(
 
 DEEPSEEK_VERTEX_MODELS = frozenset({"deepseek-ai/deepseek-v3.2-maas"})
 
+CLAUDE_AGENT_SDK_MODELS = frozenset(
+    {
+        "agent-sdk:claude-opus-4-6",
+        "agent-sdk:claude-sonnet-4-6",
+        "agent-sdk:claude-haiku-4-5",
+    }
+)
+
 
 # Single-shot reasoning configs.
 SINGLESHOT_THINKING_BUDGETS: dict[str, int] = {
