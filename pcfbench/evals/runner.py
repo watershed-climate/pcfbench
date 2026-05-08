@@ -797,7 +797,7 @@ def _summarize(rows: list[dict], spec: EvalSpec) -> dict:
 _DEFAULT_DATA_DIR = Path(__file__).resolve().parents[2] / "pcfbench_data_external"
 
 
-async def main() -> None:
+async def async_main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("eval_name", choices=list(EVALS.keys()))
     parser.add_argument("--model", required=True)
@@ -829,5 +829,9 @@ async def main() -> None:
     print(json.dumps(summary, indent=2, default=str))
 
 
+def main() -> None:
+    asyncio.run(async_main())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
