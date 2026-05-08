@@ -10,6 +10,12 @@ from pydantic_ai import Agent
 from pydantic_ai import Tool as PydanticAITool
 from pydantic_ai.usage import Usage
 
+from pcfbench.agents._task_agent import (
+    AGENT_SDK_PREFIX,
+    AgentSDKSingleshotAgent,
+    PydanticAISingleshotAgent,
+    TaskAgent,
+)
 from pcfbench.agents.runner import (
     AgentRunResult,
     run_with_iteration_cap,
@@ -19,7 +25,6 @@ from pcfbench.tools.ecoinvent_tools import (
     INSPECT_DESCRIPTION,
     SEARCH_DESCRIPTION,
     MappingDeps,
-    SubmitTerminated,
     inspect_ecoinvent,
     new_mapping_deps,
     search_ecoinvent,
@@ -109,7 +114,23 @@ def _build_mapping_user_prompt(
     return prompt
 
 
-def build_mapping_agent_singleshot(*, model_id: str) -> Agent:
+_SINGLESHOT_SUBMIT_TOOL_NAME = "submit_mapping"
+_SINGLESHOT_SUBMIT_TOOL_DESCRIPTION = "Submit the best matching ecoinvent activity."
+
+
+def _mapping_output_from_deps(deps: MappingDeps) -> MappingOutput | None:
+    ref = deps.submitted_reference_product
+    return (
+        MappingOutput(
+            reference_product=ref.strip(),
+            confidence=deps.submitted_confidence,
+        )
+        if ref
+        else None
+    )
+
+
+def build_mapping_agent_singleshot(*, model_id: str) -> TaskAgent:
     """Single-shot mapping agent: no agentic tools; full picklist in the
     prompt; submit_mapping registered as a *regular tool* (not Pydantic
     AI's ``ToolOutput``).
@@ -128,18 +149,36 @@ def build_mapping_agent_singleshot(*, model_id: str) -> Agent:
     metrics; per Stage G paired testing the ask is neutral-to-slightly-
     positive on accuracy.
     """
+    if model_id.startswith(AGENT_SDK_PREFIX):
+        return AgentSDKSingleshotAgent(
+            model_id=model_id,
+            system_prompt=MAPPING_SYSTEM_PROMPT,
+            output_type=MappingOutput,
+            submit_tool_name=_SINGLESHOT_SUBMIT_TOOL_NAME,
+            submit_tool_description=_SINGLESHOT_SUBMIT_TOOL_DESCRIPTION,
+        )
     submit_tool = PydanticAITool(
         submit_mapping,
-        name="submit_mapping",
-        description="Submit the best matching ecoinvent activity.",
+        name=_SINGLESHOT_SUBMIT_TOOL_NAME,
+        description=_SINGLESHOT_SUBMIT_TOOL_DESCRIPTION,
     )
-    return build_agent(
+    agent = build_agent(
         model_id=model_id,
         agentic=False,
         output_type=str,
         system_prompt=MAPPING_SYSTEM_PROMPT,
         tools=[submit_tool],
         deps_type=MappingDeps,
+    )
+    # Deps carry the picklist-side ``MaterialLibrary``; the runner passes a
+    # shared instance into ``run_mapping_singleshot`` per task, which
+    # forwards it via ``deps=`` so we only fall back to ``load_default``
+    # when no caller supplied one.
+    return PydanticAISingleshotAgent(
+        agent=agent,
+        make_deps=lambda: new_mapping_deps(MaterialLibrary.load_default()),
+        get_output=_mapping_output_from_deps,
+        output_recovered=lambda d: d.submitted_reference_product is not None,
     )
 
 
@@ -196,7 +235,7 @@ def build_mapping_agent_agentic(*, model_id: str) -> tuple[Agent, Agent]:
 
 async def run_mapping_singleshot(
     *,
-    agent: Agent,
+    agent: TaskAgent,
     inp: MappingInput,
     picklist_names: list[str],
     library: MaterialLibrary | None = None,
@@ -209,54 +248,14 @@ async def run_mapping_singleshot(
     turn if the model produces text-only.
 
     ``library`` is required to construct ``MappingDeps``; pass the same
-    instance the runner uses to construct the agent's tools."""
+    instance the runner uses to construct the agent's tools. The SDK
+    backend ignores ``deps`` since its capture path runs through the
+    in-process MCP submit tool."""
     if library is None:
         library = MaterialLibrary.load_default()
     user_prompt = _build_mapping_user_prompt(inp, picklist_names=picklist_names)
-    deps = new_mapping_deps(library)
-    invalid_text_nudge = (
-        "Invalid response. You must call the submit_mapping tool with "
-        "the exact reference product name from the picklist."
-    )
-    history: list = []
-    for outer_turn in range(2):  # initial + at most one nudge retry
-        prompt = user_prompt if outer_turn == 0 else invalid_text_nudge
-        # Per-turn local Usage so we can roll tokens into the caller's
-        # accumulator without polluting any shared usage_limits checks.
-        turn_usage = Usage()
-        try:
-            kwargs: dict = {"deps": deps, "usage": turn_usage}
-            if history:
-                kwargs["message_history"] = history
-            result = await agent.run(prompt, **kwargs)
-            history = result.all_messages()
-        except SubmitTerminated:
-            if usage is not None:
-                usage.incr(turn_usage)
-            ref = deps.submitted_reference_product
-            return (
-                MappingOutput(
-                    reference_product=ref.strip(),
-                    confidence=deps.submitted_confidence,
-                )
-                if ref
-                else None
-            )
-        if usage is not None:
-            usage.incr(turn_usage)
-        if deps.submitted_reference_product is not None:
-            return MappingOutput(
-                reference_product=deps.submitted_reference_product.strip(),
-                confidence=deps.submitted_confidence,
-            )
-    ref = deps.submitted_reference_product
-    return (
-        MappingOutput(
-            reference_product=ref.strip(),
-            confidence=deps.submitted_confidence,
-        )
-        if ref
-        else None
+    return await agent.run_task(
+        user_prompt, usage=usage, deps=new_mapping_deps(library)
     )
 
 

@@ -29,6 +29,7 @@ from pydantic_ai import Agent
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
+from pcfbench.agents._trace import run_pydantic_ai_with_trace
 from pcfbench.tools.ecoinvent_tools import (
     SubmitTerminated,
 )
@@ -96,7 +97,8 @@ async def run_with_iteration_cap(
     # cause the model to give up with hallucinated "I cannot find a
     # match" submissions on hard items like ed51 catalytic-converter).
     try:
-        result = await agent.run(
+        result = await run_pydantic_ai_with_trace(
+            agent,
             user_prompt,
             deps=deps,
             usage_limits=UsageLimits(request_limit=main_budget),
@@ -126,7 +128,9 @@ async def run_with_iteration_cap(
                 "usage_limits": UsageLimits(request_limit=submit_budget),
                 "message_history": history,
             }
-            result = await agent.run(invalid_text_nudge, **kwargs)
+            result = await run_pydantic_ai_with_trace(
+                agent, invalid_text_nudge, **kwargs
+            )
             output_text = result.output or output_text
             history = result.all_messages()
         except SubmitTerminated:
@@ -151,7 +155,8 @@ async def run_with_iteration_cap(
         }
         if history:
             kwargs["message_history"] = history
-        final_result = await submit_only_agent.run(
+        final_result = await run_pydantic_ai_with_trace(
+            submit_only_agent,
             invalid_text_nudge + "\n\n" + submit_only_user_prompt_suffix,
             **kwargs,
         )

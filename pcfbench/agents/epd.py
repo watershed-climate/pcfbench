@@ -17,10 +17,15 @@ import dataclasses
 from typing import Literal
 
 import pydantic as pyd
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import RunContext
 from pydantic_ai import Tool as PydanticAITool
 
-from pcfbench.agents._common import run_singleshot
+from pcfbench.agents._task_agent import (
+    AGENT_SDK_PREFIX,
+    AgentSDKSingleshotAgent,
+    PydanticAISingleshotAgent,
+    TaskAgent,
+)
 from pcfbench.models.factory import build_agent
 from pcfbench.tools.ecoinvent_tools import (
     SubmitTerminated,
@@ -100,14 +105,26 @@ async def _submit_epd_estimate(
     raise SubmitTerminated()
 
 
-def build_epd_agent(*, model_id: str, disclosure: Disclosure) -> Agent:
+_SUBMIT_TOOL_NAME = "submit_epd_estimate"
+_SUBMIT_TOOL_DESCRIPTION = "Submit your kgCO2e estimate."
+
+
+def build_epd_agent(*, model_id: str, disclosure: Disclosure) -> TaskAgent:
     """Build a Task 7 EPD agent for the given disclosure setting."""
+    if model_id.startswith(AGENT_SDK_PREFIX):
+        return AgentSDKSingleshotAgent(
+            model_id=model_id,
+            system_prompt=_PROMPTS_BY_DISCLOSURE[disclosure],
+            output_type=EPDOutput,
+            submit_tool_name=_SUBMIT_TOOL_NAME,
+            submit_tool_description=_SUBMIT_TOOL_DESCRIPTION,
+        )
     submit_tool = PydanticAITool(
         _submit_epd_estimate,
-        name="submit_epd_estimate",
-        description="Submit your kgCO2e estimate.",
+        name=_SUBMIT_TOOL_NAME,
+        description=_SUBMIT_TOOL_DESCRIPTION,
     )
-    return build_agent(
+    agent = build_agent(
         model_id=model_id,
         agentic=False,
         output_type=str,
@@ -115,10 +132,16 @@ def build_epd_agent(*, model_id: str, disclosure: Disclosure) -> Agent:
         tools=[submit_tool],
         deps_type=_Deps,
     )
+    return PydanticAISingleshotAgent(
+        agent=agent,
+        make_deps=_Deps,
+        get_output=lambda d: d.submitted,
+        output_recovered=lambda d: d.submitted is not None,
+    )
 
 
 # Back-compat alias used by ``evals/runner.py``'s composition spec.
-def build_epd_agent_with_composition(*, model_id: str) -> Agent:
+def build_epd_agent_with_composition(*, model_id: str) -> TaskAgent:
     return build_epd_agent(model_id=model_id, disclosure="with_composition")
 
 
@@ -151,29 +174,26 @@ def _build_user_prompt(inp: EPDInput, *, disclosure: Disclosure) -> str:
 
 
 async def run_epd(
-    *, agent: Agent, inp: EPDInput, disclosure: Disclosure
+    *, agent: TaskAgent, inp: EPDInput, disclosure: Disclosure
 ) -> EPDOutput | None:
-    deps = _Deps()
-    await run_singleshot(
-        agent=agent,
-        user_prompt=_build_user_prompt(inp, disclosure=disclosure),
-        deps=deps,
-        output_recovered=lambda d: d.submitted is not None,
-    )
-    return deps.submitted
+    return await agent.run_task(_build_user_prompt(inp, disclosure=disclosure))
 
 
-async def run_epd_with_composition(*, agent: Agent, inp: EPDInput) -> EPDOutput | None:
+async def run_epd_with_composition(
+    *, agent: TaskAgent, inp: EPDInput
+) -> EPDOutput | None:
     return await run_epd(agent=agent, inp=inp, disclosure="with_composition")
 
 
-async def run_epd_name_only(*, agent: Agent, inp: EPDInput) -> EPDOutput | None:
+async def run_epd_name_only(*, agent: TaskAgent, inp: EPDInput) -> EPDOutput | None:
     return await run_epd(agent=agent, inp=inp, disclosure="name_only")
 
 
-async def run_epd_with_description(*, agent: Agent, inp: EPDInput) -> EPDOutput | None:
+async def run_epd_with_description(
+    *, agent: TaskAgent, inp: EPDInput
+) -> EPDOutput | None:
     return await run_epd(agent=agent, inp=inp, disclosure="with_description")
 
 
-async def run_epd_with_region(*, agent: Agent, inp: EPDInput) -> EPDOutput | None:
+async def run_epd_with_region(*, agent: TaskAgent, inp: EPDInput) -> EPDOutput | None:
     return await run_epd(agent=agent, inp=inp, disclosure="with_region")

@@ -11,7 +11,12 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai import Tool as PydanticAITool
 from pydantic_ai.usage import Usage
 
-from pcfbench.agents._common import run_singleshot
+from pcfbench.agents._task_agent import (
+    AGENT_SDK_PREFIX,
+    AgentSDKSingleshotAgent,
+    PydanticAISingleshotAgent,
+    TaskAgent,
+)
 from pcfbench.agents.runner import (
     AgentRunResult,
     run_with_iteration_cap,
@@ -205,13 +210,25 @@ async def _submit_triage_singleshot(
     raise SubmitTerminated()
 
 
-def build_triage_agent_singleshot(*, model_id: str) -> Agent:
+_SINGLESHOT_SUBMIT_TOOL_NAME = "submit_triage"
+_SINGLESHOT_SUBMIT_TOOL_DESCRIPTION = "Submit your triage decision."
+
+
+def build_triage_agent_singleshot(*, model_id: str) -> TaskAgent:
+    if model_id.startswith(AGENT_SDK_PREFIX):
+        return AgentSDKSingleshotAgent(
+            model_id=model_id,
+            system_prompt=TRIAGE_SYSTEM_PROMPT,
+            output_type=TriageOutput,
+            submit_tool_name=_SINGLESHOT_SUBMIT_TOOL_NAME,
+            submit_tool_description=_SINGLESHOT_SUBMIT_TOOL_DESCRIPTION,
+        )
     submit_tool = PydanticAITool(
         _submit_triage_singleshot,
-        name="submit_triage",
-        description="Submit your triage decision.",
+        name=_SINGLESHOT_SUBMIT_TOOL_NAME,
+        description=_SINGLESHOT_SUBMIT_TOOL_DESCRIPTION,
     )
-    return build_agent(
+    agent = build_agent(
         model_id=model_id,
         agentic=False,
         output_type=str,
@@ -219,25 +236,23 @@ def build_triage_agent_singleshot(*, model_id: str) -> Agent:
         tools=[submit_tool],
         deps_type=_SingleShotTriageDeps,
     )
+    return PydanticAISingleshotAgent(
+        agent=agent,
+        make_deps=_SingleShotTriageDeps,
+        get_output=lambda d: d.submitted,
+        output_recovered=lambda d: d.submitted is not None,
+    )
 
 
 async def run_triage_singleshot(
     *,
-    agent: Agent,
+    agent: TaskAgent,
     inp: TriageInput,
     picklist_names: list[str],
     usage: Usage | None = None,
 ) -> TriageOutput | None:
-    deps = _SingleShotTriageDeps()
     user_prompt = _build_triage_user_prompt(inp, picklist_names=picklist_names)
-    await run_singleshot(
-        agent=agent,
-        user_prompt=user_prompt,
-        deps=deps,
-        output_recovered=lambda d: d.submitted is not None,
-        usage=usage,
-    )
-    return deps.submitted
+    return await agent.run_task(user_prompt, usage=usage)
 
 
 # ---- agentic ----

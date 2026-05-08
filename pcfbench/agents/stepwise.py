@@ -32,11 +32,16 @@ from typing import Annotated, Any, Callable, Literal
 
 import pydantic as pyd
 from pydantic import Field
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import RunContext
 from pydantic_ai import Tool as PydanticAITool
 from pydantic_ai.usage import Usage
 
-from pcfbench.agents._common import run_singleshot
+from pcfbench.agents._task_agent import (
+    AGENT_SDK_PREFIX,
+    AgentSDKSingleshotAgent,
+    PydanticAISingleshotAgent,
+    TaskAgent,
+)
 from pcfbench.agents.decomposition import (
     DecompositionInput,
     build_decomposition_agent,
@@ -151,13 +156,9 @@ class RateEstimateClaim(pyd.BaseModel):
     ]
 
 
-class RateEstimateOutput(pyd.BaseModel):
-    claim: RateEstimateClaim
-
-
 @dataclasses.dataclass
 class _RateDeps:
-    submitted: RateEstimateOutput | None = None
+    submitted: RateEstimateClaim | None = None
 
 
 async def _submit_rate_estimate(
@@ -168,19 +169,29 @@ async def _submit_rate_estimate(
         Field(description="Unit symbol — no descriptive prose."),
     ],
 ) -> dict:
-    ctx.deps.submitted = RateEstimateOutput(
-        claim=RateEstimateClaim(value=value, unit=unit)
-    )
+    ctx.deps.submitted = RateEstimateClaim(value=value, unit=unit)
     raise SubmitTerminated()
 
 
-def build_rate_estimate_agent(*, model_id: str) -> Agent:
+_RATE_SUBMIT_TOOL_NAME = "submit_rate_estimate"
+_RATE_SUBMIT_TOOL_DESCRIPTION = "Submit a single best-guess input rate."
+
+
+def build_rate_estimate_agent(*, model_id: str) -> TaskAgent:
+    if model_id.startswith(AGENT_SDK_PREFIX):
+        return AgentSDKSingleshotAgent(
+            model_id=model_id,
+            system_prompt=_RATE_ESTIMATE_SYSTEM_PROMPT,
+            output_type=RateEstimateClaim,
+            submit_tool_name=_RATE_SUBMIT_TOOL_NAME,
+            submit_tool_description=_RATE_SUBMIT_TOOL_DESCRIPTION,
+        )
     submit_tool = PydanticAITool(
         _submit_rate_estimate,
-        name="submit_rate_estimate",
-        description="Submit a single best-guess input rate.",
+        name=_RATE_SUBMIT_TOOL_NAME,
+        description=_RATE_SUBMIT_TOOL_DESCRIPTION,
     )
-    return build_agent(
+    agent = build_agent(
         model_id=model_id,
         agentic=False,
         output_type=str,
@@ -188,22 +199,18 @@ def build_rate_estimate_agent(*, model_id: str) -> Agent:
         tools=[submit_tool],
         deps_type=_RateDeps,
     )
+    return PydanticAISingleshotAgent(
+        agent=agent,
+        make_deps=_RateDeps,
+        get_output=lambda d: d.submitted,
+        output_recovered=lambda d: d.submitted is not None,
+    )
 
 
 async def _run_rate_estimate(
-    *, agent: Agent, query: str, usage: Usage | None = None
+    *, agent: TaskAgent, query: str, usage: Usage | None = None
 ) -> RateEstimateClaim | None:
-    deps = _RateDeps()
-    await run_singleshot(
-        agent=agent,
-        user_prompt=query,
-        deps=deps,
-        output_recovered=lambda d: d.submitted is not None,
-        usage=usage,
-    )
-    if deps.submitted is None:
-        return None
-    return deps.submitted.claim
+    return await agent.run_task(query, usage=usage)
 
 
 # ---------------------------------------------------------------------------
@@ -272,13 +279,13 @@ class StepwiseConfig:
     # Precompiled agent handles. If None, ``build_pipeline_agents`` does
     # the construction. Reusing built agents across many EPDs is cheap
     # and avoids re-running the model factory.
-    decomp_agent: Agent | None = None
-    triage_agent: Agent | None = None
-    mapping_agent: Agent | None = None
-    rate_agent: Agent | None = None
+    decomp_agent: TaskAgent | None = None
+    triage_agent: TaskAgent | None = None
+    mapping_agent: TaskAgent | None = None
+    rate_agent: TaskAgent | None = None
 
 
-def build_pipeline_agents(*, model_id: str) -> dict[str, Agent]:
+def build_pipeline_agents(*, model_id: str) -> dict[str, TaskAgent]:
     """Pre-build the four agent handles a stepwise run uses. Costs one
     model-factory call each, then reused across all EPDs in a sweep cell."""
     return {
