@@ -30,6 +30,10 @@ from pydantic_ai import Agent
 from pydantic_ai.usage import RequestUsage, Usage
 
 from pcfbench.agents._common import run_singleshot
+from pcfbench.agents._trace import (
+    get_trace_buffer,
+    serialize_agent_sdk_message,
+)
 from pcfbench.models.registry import SINGLESHOT_THINKING_BUDGETS
 
 AGENT_SDK_PREFIX = "agent-sdk:"
@@ -149,6 +153,8 @@ async def _run_submit_tool_query(
         tool,
     )
 
+    trace_buf = get_trace_buffer()
+
     captured: dict[str, Any] = {"output": None}
 
     @tool(
@@ -211,6 +217,8 @@ async def _run_submit_tool_query(
 
         options = ClaudeAgentOptions(**options_kwargs)
         async for message in query(prompt=user_prompt, options=options):
+            if trace_buf is not None:
+                trace_buf.append(serialize_agent_sdk_message(message))
             if isinstance(message, ResultMessage):
                 _accumulate_usage(usage, message)
                 break

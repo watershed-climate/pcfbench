@@ -25,6 +25,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
 
+from pcfbench.agents._trace import (
+    reset_trace_buffer,
+    set_trace_buffer,
+)
 from pcfbench.agents.decomposition import (
     DecompositionInput,
     build_decomposition_agent,
@@ -105,6 +109,16 @@ _RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
 
 def _model_slug(model_id: str) -> str:
     return model_id.replace("/", "_").replace("@", "_").replace(":", "__")
+
+
+def _trace_path_for(output_path: Path) -> Path:
+    """Sibling path for the per-item agent-sdk trace dump.
+
+    ``foo.jsonl`` → ``foo.trace.jsonl``; non-``.jsonl`` paths get
+    ``.trace.jsonl`` appended."""
+    if output_path.suffix == ".jsonl":
+        return output_path.with_suffix(".trace.jsonl")
+    return output_path.with_suffix(output_path.suffix + ".trace.jsonl")
 
 
 # --- Per-item scorers (delegate to pcfbench.scoring.*) -----------
@@ -509,6 +523,7 @@ async def run_eval(
     limit: int | None = None,
     concurrency: int = 8,
     max_retries: int = 5,
+    trace: bool = False,
 ) -> dict:
     spec = EVALS[eval_name]
     is_agentic = _is_agentic_eval(eval_name)
@@ -553,6 +568,7 @@ async def run_eval(
 
     sem = asyncio.Semaphore(concurrency)
     out_rows: list[dict] = []
+    trace_rows: list[dict] = []
     completed = 0
     t_start = time.perf_counter()
 
@@ -587,55 +603,72 @@ async def run_eval(
                 )
                 return
 
+            # Per-item trace buffer for the agent-sdk backend; the
+            # contextvar scoping means concurrent items don't interleave.
+            # Cleared between retry attempts so the saved trace reflects
+            # the attempt whose output we end up scoring.
+            trace_buf: list[dict] | None = [] if trace else None
+            token = (
+                set_trace_buffer(trace_buf) if trace_buf is not None else None
+            )
+
             output = None
             err = None
             attempts = 0
-            for attempt in range(max_retries):
-                attempts = attempt + 1
-                try:
-                    result = await _dispatch(
-                        spec,
-                        agent=agent,
-                        submit_only=submit_only,
-                        parsed=parsed,
-                        library=library,
-                        picklist=picklist,
-                        parakeet_state=parakeet_state,
-                        is_agentic=is_agentic,
-                    )
-                    if is_agentic:
-                        # AgentRunResult wraps deps; pull typed output.
-                        deps = result.deps
-                        if eval_name == "pcfbench_mapping_agentic_with_context":
-                            ref = deps.submitted_reference_product
-                            output = (
-                                MappingOutput(
-                                    reference_product=ref,
-                                    confidence=deps.submitted_confidence,
+            try:
+                for attempt in range(max_retries):
+                    attempts = attempt + 1
+                    if trace_buf is not None:
+                        trace_buf.clear()
+                    try:
+                        result = await _dispatch(
+                            spec,
+                            agent=agent,
+                            submit_only=submit_only,
+                            parsed=parsed,
+                            library=library,
+                            picklist=picklist,
+                            parakeet_state=parakeet_state,
+                            is_agentic=is_agentic,
+                        )
+                        if is_agentic:
+                            # AgentRunResult wraps deps; pull typed output.
+                            deps = result.deps
+                            if eval_name == "pcfbench_mapping_agentic_with_context":
+                                ref = deps.submitted_reference_product
+                                output = (
+                                    MappingOutput(
+                                        reference_product=ref,
+                                        confidence=deps.submitted_confidence,
+                                    )
+                                    if ref
+                                    else None
                                 )
-                                if ref
-                                else None
-                            )
-                        elif eval_name in (
-                            "pcfbench_triage_agentic",
-                            "pcfbench_triage_agentic_no_context",
-                        ):
-                            sm = deps.submitted_should_map
-                            output = (
-                                TriageOutput(
-                                    should_map=sm,
-                                    confidence=deps.submitted_confidence,
+                            elif eval_name in (
+                                "pcfbench_triage_agentic",
+                                "pcfbench_triage_agentic_no_context",
+                            ):
+                                sm = deps.submitted_should_map
+                                output = (
+                                    TriageOutput(
+                                        should_map=sm,
+                                        confidence=deps.submitted_confidence,
+                                    )
+                                    if sm is not None
+                                    else None
                                 )
-                                if sm is not None
-                                else None
-                            )
-                    else:
-                        output = result
-                except Exception as e:
-                    err = f"{type(e).__name__}: {e}"
-                    output = None
-                if output is not None:
-                    break
+                        else:
+                            output = result
+                    except Exception as e:
+                        err = f"{type(e).__name__}: {e}"
+                        output = None
+                    if output is not None:
+                        break
+            finally:
+                if token is not None:
+                    reset_trace_buffer(token)
+            if trace_buf is not None:
+                trace_rows.append({"item_id": it.id, "trace": list(trace_buf)})
 
             scores = spec.scorer(output, expected)
             if asyncio.iscoroutine(scores):
@@ -676,6 +709,15 @@ async def run_eval(
     with open(output_path, "w") as f:
         for row in out_rows:
             f.write(json.dumps(row, default=str) + "\n")
+
+    if trace and trace_rows:
+        # Sibling file keyed by ``item_id`` so the headline run JSONL stays
+        # human-readable; only the agent-sdk backend populates it. Other
+        # backends produce empty buffers and we skip the write.
+        trace_path = _trace_path_for(output_path)
+        with open(trace_path, "w") as f:
+            for row in trace_rows:
+                f.write(json.dumps(row, default=str) + "\n")
 
     summary = _summarize(out_rows, spec)
     summary["elapsed_total_s"] = time.perf_counter() - t_start
@@ -814,6 +856,16 @@ async def async_main() -> None:
         default=_DEFAULT_DATA_DIR,
         help="Directory with pcfbench task*.jsonl files.",
     )
+    parser.add_argument(
+        "--trace",
+        action="store_true",
+        help=(
+            "Capture the full agent-sdk message stream (system / "
+            "assistant / user / result) per item to "
+            "<output>.trace.jsonl. No-op for pydantic-ai backends, "
+            "which produce empty buffers."
+        ),
+    )
     args = parser.parse_args()
 
     out = (
@@ -828,6 +880,7 @@ async def async_main() -> None:
         data_dir=args.data_dir,
         limit=args.limit,
         concurrency=args.concurrency,
+        trace=args.trace,
     )
     print("\n=== SUMMARY ===")
     print(json.dumps(summary, indent=2, default=str))

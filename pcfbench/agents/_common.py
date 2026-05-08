@@ -17,6 +17,7 @@ from pydantic_ai import Agent
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.usage import Usage, UsageLimits
 
+from pcfbench.agents._trace import run_pydantic_ai_with_trace
 from pcfbench.tools.ecoinvent_tools import (
     SubmitTerminated,
 )
@@ -63,7 +64,9 @@ async def run_singleshot(
             }
             if history:
                 kwargs["message_history"] = history
-            result = await agent.run(next_prompt, **kwargs)
+            result = await run_pydantic_ai_with_trace(
+                agent, next_prompt, **kwargs
+            )
             history = result.all_messages()
         except SubmitTerminated:
             if usage is not None:
