@@ -63,17 +63,23 @@ async def _submit_decomposition(
     raise SubmitTerminated()
 
 
+_SUBMIT_TOOL_NAME = "submit_decomposition"
+_SUBMIT_TOOL_DESCRIPTION = "Submit the bill-of-materials components."
+
+
 def build_decomposition_agent(*, model_id: str) -> TaskAgent:
     if model_id.startswith(AGENT_SDK_PREFIX):
         return AgentSDKSingleshotAgent(
             model_id=model_id,
             system_prompt=DECOMPOSITION_SYSTEM_PROMPT,
             output_type=DecompositionOutput,
+            submit_tool_name=_SUBMIT_TOOL_NAME,
+            submit_tool_description=_SUBMIT_TOOL_DESCRIPTION,
         )
     submit_tool = PydanticAITool(
         _submit_decomposition,
-        name="submit_decomposition",
-        description="Submit the bill-of-materials components.",
+        name=_SUBMIT_TOOL_NAME,
+        description=_SUBMIT_TOOL_DESCRIPTION,
     )
     agent = build_agent(
         model_id=model_id,

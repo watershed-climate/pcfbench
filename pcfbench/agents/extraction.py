@@ -98,6 +98,10 @@ async def _submit_extraction(
     raise SubmitTerminated()
 
 
+_SUBMIT_TOOL_NAME = "submit_extraction"
+_SUBMIT_TOOL_DESCRIPTION = "Submit all extracted numerical claims."
+
+
 def build_extraction_agent(
     *, model_id: str, system_prompt: str = EXTRACTION_SYSTEM_PROMPT
 ) -> TaskAgent:
@@ -113,11 +117,13 @@ def build_extraction_agent(
             model_id=model_id,
             system_prompt=system_prompt,
             output_type=ExtractionOutput,
+            submit_tool_name=_SUBMIT_TOOL_NAME,
+            submit_tool_description=_SUBMIT_TOOL_DESCRIPTION,
         )
     submit_tool = PydanticAITool(
         _submit_extraction,
-        name="submit_extraction",
-        description="Submit all extracted numerical claims.",
+        name=_SUBMIT_TOOL_NAME,
+        description=_SUBMIT_TOOL_DESCRIPTION,
     )
     agent = build_agent(
         model_id=model_id,

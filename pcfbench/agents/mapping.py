@@ -114,6 +114,10 @@ def _build_mapping_user_prompt(
     return prompt
 
 
+_SINGLESHOT_SUBMIT_TOOL_NAME = "submit_mapping"
+_SINGLESHOT_SUBMIT_TOOL_DESCRIPTION = "Submit the best matching ecoinvent activity."
+
+
 def _mapping_output_from_deps(deps: MappingDeps) -> MappingOutput | None:
     ref = deps.submitted_reference_product
     return (
@@ -150,11 +154,13 @@ def build_mapping_agent_singleshot(*, model_id: str) -> TaskAgent:
             model_id=model_id,
             system_prompt=MAPPING_SYSTEM_PROMPT,
             output_type=MappingOutput,
+            submit_tool_name=_SINGLESHOT_SUBMIT_TOOL_NAME,
+            submit_tool_description=_SINGLESHOT_SUBMIT_TOOL_DESCRIPTION,
         )
     submit_tool = PydanticAITool(
         submit_mapping,
-        name="submit_mapping",
-        description="Submit the best matching ecoinvent activity.",
+        name=_SINGLESHOT_SUBMIT_TOOL_NAME,
+        description=_SINGLESHOT_SUBMIT_TOOL_DESCRIPTION,
     )
     agent = build_agent(
         model_id=model_id,
@@ -164,6 +170,10 @@ def build_mapping_agent_singleshot(*, model_id: str) -> TaskAgent:
         tools=[submit_tool],
         deps_type=MappingDeps,
     )
+    # Deps carry the picklist-side ``MaterialLibrary``; the runner passes a
+    # shared instance into ``run_mapping_singleshot`` per task, which
+    # forwards it via ``deps=`` so we only fall back to ``load_default``
+    # when no caller supplied one.
     return PydanticAISingleshotAgent(
         agent=agent,
         make_deps=lambda: new_mapping_deps(MaterialLibrary.load_default()),
@@ -238,10 +248,15 @@ async def run_mapping_singleshot(
     turn if the model produces text-only.
 
     ``library`` is required to construct ``MappingDeps``; pass the same
-    instance the runner uses to construct the agent's tools."""
-    del library
+    instance the runner uses to construct the agent's tools. The SDK
+    backend ignores ``deps`` since its capture path runs through the
+    in-process MCP submit tool."""
+    if library is None:
+        library = MaterialLibrary.load_default()
     user_prompt = _build_mapping_user_prompt(inp, picklist_names=picklist_names)
-    return await agent.run_task(user_prompt, usage=usage)
+    return await agent.run_task(
+        user_prompt, usage=usage, deps=new_mapping_deps(library)
+    )
 
 
 async def run_mapping_agentic(

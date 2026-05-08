@@ -105,6 +105,10 @@ async def _submit_epd_estimate(
     raise SubmitTerminated()
 
 
+_SUBMIT_TOOL_NAME = "submit_epd_estimate"
+_SUBMIT_TOOL_DESCRIPTION = "Submit your kgCO2e estimate."
+
+
 def build_epd_agent(*, model_id: str, disclosure: Disclosure) -> TaskAgent:
     """Build a Task 7 EPD agent for the given disclosure setting."""
     if model_id.startswith(AGENT_SDK_PREFIX):
@@ -112,11 +116,13 @@ def build_epd_agent(*, model_id: str, disclosure: Disclosure) -> TaskAgent:
             model_id=model_id,
             system_prompt=_PROMPTS_BY_DISCLOSURE[disclosure],
             output_type=EPDOutput,
+            submit_tool_name=_SUBMIT_TOOL_NAME,
+            submit_tool_description=_SUBMIT_TOOL_DESCRIPTION,
         )
     submit_tool = PydanticAITool(
         _submit_epd_estimate,
-        name="submit_epd_estimate",
-        description="Submit your kgCO2e estimate.",
+        name=_SUBMIT_TOOL_NAME,
+        description=_SUBMIT_TOOL_DESCRIPTION,
     )
     agent = build_agent(
         model_id=model_id,

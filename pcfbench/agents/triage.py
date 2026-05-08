@@ -210,17 +210,23 @@ async def _submit_triage_singleshot(
     raise SubmitTerminated()
 
 
+_SINGLESHOT_SUBMIT_TOOL_NAME = "submit_triage"
+_SINGLESHOT_SUBMIT_TOOL_DESCRIPTION = "Submit your triage decision."
+
+
 def build_triage_agent_singleshot(*, model_id: str) -> TaskAgent:
     if model_id.startswith(AGENT_SDK_PREFIX):
         return AgentSDKSingleshotAgent(
             model_id=model_id,
             system_prompt=TRIAGE_SYSTEM_PROMPT,
             output_type=TriageOutput,
+            submit_tool_name=_SINGLESHOT_SUBMIT_TOOL_NAME,
+            submit_tool_description=_SINGLESHOT_SUBMIT_TOOL_DESCRIPTION,
         )
     submit_tool = PydanticAITool(
         _submit_triage_singleshot,
-        name="submit_triage",
-        description="Submit your triage decision.",
+        name=_SINGLESHOT_SUBMIT_TOOL_NAME,
+        description=_SINGLESHOT_SUBMIT_TOOL_DESCRIPTION,
     )
     agent = build_agent(
         model_id=model_id,
