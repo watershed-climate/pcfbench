@@ -17,6 +17,10 @@ from __future__ import annotations
 import statistics
 from typing import Any
 
+from pcfbench.agents.stepwise import (
+    StepwiseResult,
+)
+
 # Mass-fraction thresholds. Sums slightly over 1.0 are normal in LCA
 # (process losses, recycled-content double-counting); the over-thresholds
 # flag the egregious tail. Sums *below* 1.0 violate conservation of mass
@@ -33,7 +37,9 @@ def _is_mass_per_mass(unit: str) -> bool:
     return (unit or "").strip().lower() in _MASS_PER_MASS_UNITS
 
 
-def score_stepwise_violations(out, expected: dict) -> dict[str, Any]:
+def score_stepwise_violations(
+    out: StepwiseResult | None, expected: dict[str, Any]
+) -> dict[str, Any]:
     """Per-item structural-invariant score for one ``StepwiseResult``.
 
     ``out`` is a ``StepwiseResult`` (or ``None`` on pipeline failure).
@@ -117,7 +123,7 @@ def _rate_true(values: list[bool | None]) -> float | None:
     return sum(1.0 for v in vs if v) / len(vs)
 
 
-def summarize_stepwise(rows: list[dict]) -> dict[str, Any]:
+def summarize_stepwise(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Run-level aggregates over the per-item scores. Designed to be
     called from ``evals.runner._summarize`` for the stepwise eval."""
 

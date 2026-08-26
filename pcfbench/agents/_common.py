@@ -47,7 +47,7 @@ async def run_singleshot(
         "required structured fields. Call it now and do not respond "
         "with text only."
     )
-    history: list = []
+    history: list[Any] = []
     next_prompt = user_prompt
     for _ in range(max(1, max_outer_turns)):
         # Fresh per-turn Usage so ``usage_limits.request_limit`` applies

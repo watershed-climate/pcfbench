@@ -14,7 +14,7 @@ counterpart lives in ``stepwise.py``."""
 from __future__ import annotations
 
 import dataclasses
-from typing import Literal
+from typing import Any, Literal
 
 import pydantic as pyd
 from pydantic_ai import Agent, RunContext
@@ -95,7 +95,7 @@ class _Deps:
 async def _submit_epd_estimate(
     ctx: RunContext[_Deps],
     kgco2e: float,
-) -> dict:
+) -> dict[str, Any]:
     ctx.deps.submitted = EPDOutput(kgco2e=kgco2e)
     raise SubmitTerminated()
 

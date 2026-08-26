@@ -25,6 +25,12 @@ GEMINI_MODELS = frozenset(
 
 DEEPSEEK_VERTEX_MODELS = frozenset({"deepseek-ai/deepseek-v3.2-maas"})
 
+# Locally-served open-weight models. These need no API key and no cloud
+# account: Ollama serves them over an OpenAI-compatible endpoint on
+# localhost, so every single-shot PCFBench task is reproducible on a
+# laptop. Model IDs are Ollama tags.
+LOCAL_OLLAMA_MODELS = frozenset({"qwen3.5:4b"})
+
 
 # Single-shot reasoning configs.
 SINGLESHOT_THINKING_BUDGETS: dict[str, int] = {

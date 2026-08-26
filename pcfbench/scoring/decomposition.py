@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+from typing import Iterable
 
 import pydantic as pyd
 from pydantic_ai import Agent
@@ -137,15 +138,21 @@ def _judge_agent() -> Agent:
         _JUDGE_AGENT = Agent(
             GoogleModel(
                 DECOMPOSITION_JUDGE_MODEL,
-                provider=GoogleProvider(
+                # WHY: pydantic-ai's GoogleProvider overloads don't expose
+                # the vertexai+project+location combo, though it's valid at
+                # runtime per the docstring.
+                provider=GoogleProvider(  # type: ignore[call-overload]
                     vertexai=True,
                     project=vertex_project_id(),
                     location="global",
                 ),
                 settings=GoogleModelSettings(temperature=0.0),
             ),
+            # WHY: pydantic-ai's ToolOutput is typed for str outputs but
+            # accepts any pydantic model at runtime; the generic isn't
+            # exposed through the public stub.
             output_type=ToolOutput(
-                _JudgeResult,
+                _JudgeResult,  # type: ignore[arg-type]
                 name="submit_judgment",
                 description="Submit the alignment between PREDICTED and EXPECTED.",
             ),
@@ -371,14 +378,14 @@ async def score_item_async(
     return base
 
 
-def run_mean_float(values):
+def run_mean_float(values: Iterable[float | None]) -> float:
     vals = [float(v) for v in values if v is not None]
     if not vals:
         return 0.0
     return sum(vals) / len(vals)
 
 
-def run_mean_bool(values):
+def run_mean_bool(values: Iterable[bool | None]) -> float:
     vals = [v for v in values if v is not None]
     if not vals:
         return 0.0

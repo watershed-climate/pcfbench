@@ -167,7 +167,7 @@ async def _submit_rate_estimate(
         str,
         Field(description="Unit symbol — no descriptive prose."),
     ],
-) -> dict:
+) -> dict[str, Any]:
     ctx.deps.submitted = RateEstimateOutput(
         claim=RateEstimateClaim(value=value, unit=unit)
     )

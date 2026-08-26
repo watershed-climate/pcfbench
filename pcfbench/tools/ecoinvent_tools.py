@@ -96,7 +96,7 @@ async def search_ecoinvent(
         int,
         Field(description="Maximum vector search results to return."),
     ] = 10,
-) -> dict:
+) -> dict[str, Any]:
     """search_ecoinvent — exposed as a Pydantic AI tool."""
     tracker: SearchMaterialTracker = ctx.deps.tracker
     return tracker.search_materials(
@@ -118,7 +118,7 @@ async def inspect_ecoinvent(
             )
         ),
     ],
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """inspect_ecoinvent — exposed as a Pydantic AI tool."""
     tracker: SearchMaterialTracker = ctx.deps.tracker
     return tracker.inspect_materials(material_names)
@@ -127,7 +127,7 @@ async def inspect_ecoinvent(
 async def deep_thought(
     ctx: RunContext[Any],  # noqa: ARG001
     thought: str,  # noqa: ARG001
-) -> dict:
+) -> dict[str, Any]:
     """No-op scratchpad. Returns an empty dict so the agent gets a
     response and continues. Mirrors PSWAgent's deep-thought tool."""
     return {}
@@ -148,7 +148,7 @@ async def submit_mapping(
     ctx: RunContext[MappingDeps],
     reference_product: str,
     confidence: Annotated[float, _CONFIDENCE_FIELD],
-) -> dict:
+) -> dict[str, Any]:
     """Terminating tool: stores the chosen reference product and the
     model's calibrated self-confidence into deps and raises
     ``SubmitTerminated`` to end the agent loop. The runner catches it
@@ -170,7 +170,7 @@ async def submit_triage(
     ctx: RunContext[TriageDeps],
     should_map: bool,
     confidence: Annotated[float, _CONFIDENCE_FIELD],
-) -> dict:
+) -> dict[str, Any]:
     """Terminating tool for triage. See ``submit_mapping`` re: the
     confidence parameter."""
     ctx.deps.submitted_should_map = should_map

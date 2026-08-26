@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 from functools import cache
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from google import genai
@@ -79,7 +80,7 @@ class _GeminiEmbedder:
             location=_GEMINI_LOCATION,
         )
 
-    def embed(self, text: str) -> np.ndarray:
+    def embed(self, text: str) -> np.ndarray[Any, Any]:
         cleaned = text.replace("\n", " ")
         response = self._client.models.embed_content(
             model=self._model,
@@ -95,7 +96,7 @@ class _GeminiEmbedder:
         return arr
 
 
-def encode_query(text: str) -> np.ndarray:
+def encode_query(text: str) -> np.ndarray[Any, Any]:
     """Embed a single query string with the active embedding model."""
     return _embedder().embed(text)
 
@@ -110,27 +111,36 @@ class MaterialLibrary:
         self,
         *,
         materials: list[PicklistMaterial],
-        embeddings: np.ndarray,
+        embeddings: np.ndarray[Any, Any] | None,
         ids_in_order: list[str],
     ) -> None:
-        if embeddings.shape[0] != len(ids_in_order):
+        if embeddings is not None and embeddings.shape[0] != len(ids_in_order):
             raise ValueError(
                 "embeddings rows must match ids_in_order length: "
                 f"{embeddings.shape[0]} vs {len(ids_in_order)}"
             )
         self._materials = {m.activity_uuid_product_uuid: m for m in materials}
         self._index_by_id = {mid: i for i, mid in enumerate(ids_in_order)}
-        self._embeddings = embeddings.astype(np.float32, copy=False)
+        self._embeddings = (
+            None if embeddings is None else embeddings.astype(np.float32, copy=False)
+        )
         self._ids_in_order = ids_in_order
 
     @classmethod
     def load_default(cls) -> "MaterialLibrary":
         """Load picklist + embeddings from the package's bundled assets.
 
-        Cross-checks the row-order UUID sidecar (written by the embed
-        scripts) against the current ``ecoinvent_picklist.jsonl`` order
-        so a stale ``embeddings.npy`` can never silently misalign with a
-        freshly regenerated picklist.
+        Embeddings are optional. Vector search needs them, but the
+        single-shot evals only need the picklist itself (names inlined
+        in the prompt) plus keyword lookup, and the embeddings ``.npy``
+        is a large generated artifact that is not distributed. When it
+        is absent the library still loads and ``search_vector`` is the
+        only thing that fails, with an actionable message.
+
+        When embeddings are present, cross-checks the row-order UUID
+        sidecar (written by the embed scripts) against the current
+        ``ecoinvent_picklist.jsonl`` order so a stale ``embeddings.npy``
+        can never silently misalign with a freshly regenerated picklist.
         """
         with open(_PICKLIST_JSONL) as f:
             raw_materials = [json.loads(line) for line in f if line.strip()]
@@ -138,6 +148,12 @@ class MaterialLibrary:
         picklist_uuids = [m.activity_uuid_product_uuid for m in materials]
 
         embeddings_path, _, uuids_path = _embedding_paths()
+        if not embeddings_path.exists():
+            return cls(
+                materials=materials,
+                embeddings=None,
+                ids_in_order=picklist_uuids,
+            )
         embeddings = np.load(embeddings_path)
 
         if not uuids_path.exists():
@@ -200,6 +216,14 @@ class MaterialLibrary:
     def search_vector(self, query: str, *, k: int = 10) -> list[PicklistMaterial]:
         """Cosine top-k by embedding the query and ranking against the
         precomputed picklist embeddings (which are L2-normalised)."""
+        if self._embeddings is None:
+            embeddings_path, _, _ = _embedding_paths()
+            raise RuntimeError(
+                f"Vector search needs picklist embeddings at {embeddings_path}, "
+                "which are not present. Build them with "
+                "`python -m pcfbench.picklist.embed_gemini` (requires Vertex "
+                "credentials). Single-shot evals do not need them."
+            )
         query_vec = encode_query(query)
         # cosine == dot when both sides are L2-normalised
         scores = self._embeddings @ query_vec

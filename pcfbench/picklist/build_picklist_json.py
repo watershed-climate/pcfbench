@@ -46,6 +46,7 @@ from __future__ import annotations
 import json
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -142,7 +143,7 @@ def _select_candidate_markets(df: pd.DataFrame) -> pd.DataFrame:
         flush=True,
     )
 
-    chosen_idx: list = []
+    chosen_idx: list[Any] = []
     dropped_no_fallback = 0
     for _, group in kg_markets.groupby("Reference Product Name", sort=False):
         # First-row-per-geography mapping (drops duplicates if any).
@@ -174,7 +175,7 @@ def main() -> None:
     # ``embeddings_*uuids.json`` sidecar.
     candidates = candidates.sort_values(KEY_COL, kind="stable")
 
-    materials_out: list[dict] = [
+    materials_out: list[dict[str, Any]] = [
         {
             "activity_uuid_product_uuid": str(row[KEY_COL]),
             "activity_name": str(row["Activity Name"]),

@@ -21,7 +21,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "anthropic>=0.40,<1.0",
+    "anthropic>=0.75,<0.80",
     "google-auth>=2.20,<3.0",
     "google-genai>=1.2,<2.0",
     "httpx>=0.25,<1.0",
@@ -47,9 +47,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage     = "https://github.com/pcfbench-a11y/pcfbench"
-Repository   = "https://github.com/pcfbench-a11y/pcfbench"
-Issues       = "https://github.com/pcfbench-a11y/pcfbench/issues"
+Homepage     = "https://github.com/watershed-climate/pcfbench"
+Repository   = "https://github.com/watershed-climate/pcfbench"
+Issues       = "https://github.com/watershed-climate/pcfbench/issues"
 
 [project.scripts]
 pcfbench-runner = "pcfbench.evals.runner:main"

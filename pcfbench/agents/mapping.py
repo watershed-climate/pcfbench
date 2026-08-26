@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Any
 
 import pydantic as pyd
 from pydantic_ai import Agent
@@ -80,7 +81,7 @@ class MappingInput:
     material_name: str
     description: str | None = None
     supplier: str | None = None
-    purchaser_context: dict | None = None
+    purchaser_context: dict[str, Any] | None = None
 
 
 def _build_mapping_user_prompt(
@@ -218,14 +219,14 @@ async def run_mapping_singleshot(
         "Invalid response. You must call the submit_mapping tool with "
         "the exact reference product name from the picklist."
     )
-    history: list = []
+    history: list[Any] = []
     for outer_turn in range(2):  # initial + at most one nudge retry
         prompt = user_prompt if outer_turn == 0 else invalid_text_nudge
         # Per-turn local Usage so we can roll tokens into the caller's
         # accumulator without polluting any shared usage_limits checks.
         turn_usage = Usage()
         try:
-            kwargs: dict = {"deps": deps, "usage": turn_usage}
+            kwargs: dict[str, Any] = {"deps": deps, "usage": turn_usage}
             if history:
                 kwargs["message_history"] = history
             result = await agent.run(prompt, **kwargs)

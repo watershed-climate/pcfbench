@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Annotated
+from typing import Annotated, Any
 
 import pydantic as pyd
 from pydantic import Field
@@ -200,7 +200,7 @@ async def _submit_triage_singleshot(
     ctx: RunContext[_SingleShotTriageDeps],
     should_map: bool,
     confidence: Annotated[float, _TRIAGE_CONFIDENCE_FIELD],
-) -> dict:
+) -> dict[str, Any]:
     ctx.deps.submitted = TriageOutput(should_map=should_map, confidence=confidence)
     raise SubmitTerminated()
 

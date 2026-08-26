@@ -14,7 +14,12 @@ from __future__ import annotations
 from typing import Any
 
 
-def _norm(s: str | None) -> str:
+def normalize_reference_product(s: str | None) -> str:
+    """Case- and whitespace-insensitive key for a reference-product name.
+
+    Shared with ``mapping_ef`` so EF-table keys and exact-match
+    comparisons agree on what counts as the same activity.
+    """
     return (s or "").lower().strip()
 
 
@@ -23,11 +28,11 @@ def score_exact_match(predicted: str | None, expected: dict[str, Any]) -> bool |
     products in ``expected['options']`` (case- and whitespace-insensitive)."""
     if predicted is None:
         return None
-    pred = _norm(predicted)
+    pred = normalize_reference_product(predicted)
     if not pred:
         return None
     for opt in expected.get("options") or []:
-        if pred == _norm(opt):
+        if pred == normalize_reference_product(opt):
             return True
     return False
 
@@ -40,7 +45,7 @@ def score_relevant_substring(
     rs = expected.get("relevant_substring_1")
     if rs is None or predicted is None:
         return None
-    pred = _norm(predicted)
+    pred = normalize_reference_product(predicted)
     if not pred:
         return None
     return rs.lower() in pred
@@ -54,7 +59,7 @@ def score_banned_substring_absent(
     banned = expected.get("banned_substring")
     if banned is None or predicted is None:
         return None
-    pred = _norm(predicted)
+    pred = normalize_reference_product(predicted)
     if not pred:
         return None
     return banned.lower() not in pred

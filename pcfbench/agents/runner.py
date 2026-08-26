@@ -88,7 +88,7 @@ async def run_with_iteration_cap(
     )
     submit_budget = 3
     main_budget = max(1, max_iterations - submit_budget)
-    history: list = []
+    history: list[Any] = []
 
     # Main pass — single agent.run with PSWAgent's full budget. The model
     # keeps context across all tool calls instead of being chopped into

@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -222,7 +222,8 @@ async def run_parakeet_mapping(
         candidate_list=candidate_list,
     )
     rerank_result = await rerank_agent.run(rerank_user_prompt)
-    selected = (rerank_result.output.selected_activity or "").strip()
+    rerank_output = cast(RerankOutput, rerank_result.output)
+    selected = (rerank_output.selected_activity or "").strip()
     if not selected:
         # Pydantic AI guarantees a typed RerankOutput, but the activity
         # name itself can come back blank from the LLM. Mirror the

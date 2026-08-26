@@ -109,7 +109,7 @@ _RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
 # the ``_summarize`` aggregator below.
 
 
-async def score_decomposition(out, expected: dict) -> dict:
+async def score_decomposition(out: Any, expected: dict[str, Any]) -> dict[str, Any]:
     """Gemini-judge-aligned precision/recall/F1/Kendall-tau/exact-set.
 
     Async because the Gemini judge call goes through ``asyncio.to_thread``
@@ -118,7 +118,7 @@ async def score_decomposition(out, expected: dict) -> dict:
     return await _score_decomp.score_item_async(components, expected.get("components"))
 
 
-def score_triage(out, expected: dict) -> dict:
+def score_triage(out: Any, expected: dict[str, Any]) -> dict[str, Any]:
     pred = out.should_map if out is not None else None
     conf = out.confidence if out is not None else None
     return {
@@ -127,7 +127,7 @@ def score_triage(out, expected: dict) -> dict:
     }
 
 
-def score_mapping(out, expected: dict) -> dict:
+def score_mapping(out: Any, expected: dict[str, Any]) -> dict[str, Any]:
     pred = out.reference_product if out is not None else None
     conf = out.confidence if out is not None else None
     return {
@@ -140,7 +140,7 @@ def score_mapping(out, expected: dict) -> dict:
     }
 
 
-def score_extraction(out, expected: dict) -> dict:
+def score_extraction(out: Any, expected: dict[str, Any]) -> dict[str, Any]:
     if out is None:
         pred = None
     else:
@@ -156,14 +156,14 @@ def score_extraction(out, expected: dict) -> dict:
     }
 
 
-def score_epd(out, expected: dict) -> dict:
+def score_epd(out: Any, expected: dict[str, Any]) -> dict[str, Any]:
     pred_kg = out.kgco2e if out is not None else None
     truth_kg = expected.get("kgco2e")
     rel_err = _score_epd.score_relative_error(pred_kg, truth_kg)
     return {"rel_err": rel_err}
 
 
-def score_stepwise(out, expected: dict) -> dict:
+def score_stepwise(out: Any, expected: dict[str, Any]) -> dict[str, Any]:
     """Wrapper that the eval registry binds to the stepwise EvalSpec.
 
     Per-item structural-invariant scores only. We deliberately do NOT
@@ -222,17 +222,19 @@ async def run_stepwise(*, agent: StepwiseConfig, inp: EPDInput) -> StepwiseResul
 @dataclass
 class EvalSpec:
     dataset: str
-    parse_input: Callable[[dict], Any]
+    parse_input: Callable[[dict[str, Any]], Any]
     build_agent: Callable[..., Any]
     run_fn: Callable[..., Any]
-    scorer: Callable[[Any, dict], dict]
+    # scorer may be sync or async; the runner handles both via
+    # ``asyncio.iscoroutine`` on the returned value.
+    scorer: Callable[[Any, dict[str, Any]], Any]
     needs_picklist: bool = False
     needs_library: bool = False
     is_parakeet: bool = False
-    extra_runner_kwargs: dict = None  # type: ignore[assignment]
+    extra_runner_kwargs: dict[str, Any] | None = None
 
 
-def _parse_decomposition(inp: dict) -> DecompositionInput:
+def _parse_decomposition(inp: dict[str, Any]) -> DecompositionInput:
     return DecompositionInput(
         product_name=inp.get("product_name") or "",
         description=inp.get("description") or "",
@@ -240,7 +242,7 @@ def _parse_decomposition(inp: dict) -> DecompositionInput:
     )
 
 
-def _parse_triage(inp: dict) -> TriageInput:
+def _parse_triage(inp: dict[str, Any]) -> TriageInput:
     market = inp.get("market") or {}
     ctx = inp.get("material_context_data") or {}
     return TriageInput(
@@ -256,7 +258,7 @@ def _parse_triage(inp: dict) -> TriageInput:
     )
 
 
-def _parse_mapping(inp: dict) -> MappingInput:
+def _parse_mapping(inp: dict[str, Any]) -> MappingInput:
     return MappingInput(
         material_name=inp.get("material_name") or "",
         description=inp.get("description"),
@@ -265,7 +267,7 @@ def _parse_mapping(inp: dict) -> MappingInput:
     )
 
 
-def _parse_extraction(inp: dict) -> ExtractionInput:
+def _parse_extraction(inp: dict[str, Any]) -> ExtractionInput:
     return ExtractionInput(
         query=inp.get("query") or "",
         document_text=inp.get("document_text") or "",
@@ -273,7 +275,7 @@ def _parse_extraction(inp: dict) -> ExtractionInput:
     )
 
 
-def _parse_epd(inp: dict) -> EPDInput:
+def _parse_epd(inp: dict[str, Any]) -> EPDInput:
     return EPDInput(
         product_name=inp.get("product_name") or "",
         description=inp.get("description") or "",
@@ -422,6 +424,54 @@ EVALS: dict[str, EvalSpec] = {
         run_fn=run_stepwise,
         scorer=score_stepwise,
     ),
+    # --- Chained end-to-end subset (27 EPDs, reviewer yQUd Q1) ---
+    # Same parsers, agents and scorers as the headline evals above; only the dataset
+    # differs, so chained numbers stay directly comparable. Every item carries a
+    # `chain_id` in metadata, which is what lets a Task 7 residual be attributed
+    # back through the earlier tasks for one product.
+    "pcfbench_chained_decomposition": EvalSpec(
+        dataset="lca_benchmark_paper_chained_decomposition",
+        parse_input=_parse_decomposition,
+        build_agent=build_decomposition_agent,
+        run_fn=run_decomposition,
+        scorer=score_decomposition,
+    ),
+    "pcfbench_chained_triage": EvalSpec(
+        dataset="lca_benchmark_paper_chained_triage",
+        parse_input=_parse_triage,
+        build_agent=build_triage_agent_singleshot,
+        run_fn=run_triage_singleshot,
+        scorer=score_triage,
+        needs_picklist=True,
+    ),
+    "pcfbench_chained_mapping_with_context": EvalSpec(
+        dataset="lca_benchmark_paper_chained_mapping",
+        parse_input=_parse_mapping,
+        build_agent=build_mapping_agent_singleshot,
+        run_fn=run_mapping_singleshot,
+        scorer=score_mapping,
+        needs_picklist=True,
+        needs_library=True,
+    ),
+    "pcfbench_chained_epd_with_description": EvalSpec(
+        dataset="lca_benchmark_paper_chained_epd",
+        parse_input=_parse_epd,
+        build_agent=lambda *, model_id: build_epd_agent(
+            model_id=model_id, disclosure="with_description"
+        ),
+        run_fn=run_epd_with_description,
+        scorer=score_epd,
+    ),
+    # The compositional arm. Reads the same chained EPD rows but re-derives the BOM
+    # itself: `run_stepwise_compositional` ignores `epd.composition` so the comparison
+    # against the single-shot `+description` row above is disclosure-controlled.
+    "pcfbench_chained_stepwise": EvalSpec(
+        dataset="lca_benchmark_paper_chained_epd_stepwise",
+        parse_input=_parse_epd,
+        build_agent=build_stepwise_config,
+        run_fn=run_stepwise,
+        scorer=score_stepwise,
+    ),
 }
 
 
@@ -440,13 +490,41 @@ DATASET_TO_FILES: dict[str, list[str]] = {
     # Alias: the stepwise eval reads the same EPD JSONL but routes
     # through a different scorer + summary branch.
     "lca_benchmark_paper_epd_stepwise": ["task7_epd.jsonl"],
+    # Chained subset. Lives in its own directory so the shipped files above stay
+    # untouched; resolved via CHAINED_DATA_DIR rather than --data-dir.
+    "lca_benchmark_paper_chained_decomposition": ["chained_task1_decomposition.jsonl"],
+    "lca_benchmark_paper_chained_triage": ["chained_task2_triage.jsonl"],
+    "lca_benchmark_paper_chained_mapping": ["chained_task3_mapping.jsonl"],
+    "lca_benchmark_paper_chained_epd": ["chained_task7_epd.jsonl"],
+    "lca_benchmark_paper_chained_epd_stepwise": ["chained_task7_epd.jsonl"],
+}
+
+# Chained JSONLs are not in `pcfbench_data_external/`; they are generated by
+# `data/chained/flash_export_jsonl.py` and read from there so the published data
+# directory is never written to.
+CHAINED_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "chained" / "jsonl"
+
+# Chained dataset -> the headline dataset whose `_summarize` branch it shares. The
+# per-item scores are identical, so without this the chained runs would fall through
+# to the generic mean and lose claim-F1 / within-2x / accuracy.
+_CHAINED_TO_HEADLINE_DATASET = {
+    "lca_benchmark_paper_chained_decomposition": "lca_benchmark_paper_decomposition",
+    "lca_benchmark_paper_chained_triage": "lca_benchmark_paper_triage",
+    "lca_benchmark_paper_chained_mapping": "lca_benchmark_paper_mapping",
+    "lca_benchmark_paper_chained_epd": "lca_benchmark_paper_epd",
+    "lca_benchmark_paper_chained_epd_stepwise": "lca_benchmark_paper_epd_stepwise",
 }
 
 
-def _load_items(data_dir: Path, dataset: str) -> list:
-    rows: list = []
+def _load_items(data_dir: Path, dataset: str) -> list[SimpleNamespace]:
+    rows: list[SimpleNamespace] = []
+    base = (
+        CHAINED_DATA_DIR
+        if dataset.startswith("lca_benchmark_paper_chained")
+        else data_dir
+    )
     for fname in DATASET_TO_FILES[dataset]:
-        path = data_dir / fname
+        path = base / fname
         for line in path.read_text().splitlines():
             if not line.strip():
                 continue
@@ -464,7 +542,7 @@ async def _dispatch(
     picklist: list[str] | None,
     parakeet_state: ParakeetState | None,
     is_agentic: bool,
-):
+) -> Any:
     """Call the appropriate run_fn given eval signature."""
     if spec.is_parakeet:
         # ``agent`` here is the (paraphrase, rerank) tuple returned by
@@ -505,7 +583,7 @@ async def run_eval(
     limit: int | None = None,
     concurrency: int = 8,
     max_retries: int = 5,
-) -> dict:
+) -> dict[str, Any]:
     spec = EVALS[eval_name]
     is_agentic = _is_agentic_eval(eval_name)
 
@@ -548,11 +626,11 @@ async def run_eval(
     )
 
     sem = asyncio.Semaphore(concurrency)
-    out_rows: list[dict] = []
+    out_rows: list[dict[str, Any]] = []
     completed = 0
     t_start = time.perf_counter()
 
-    async def _one(it):
+    async def _one(it: SimpleNamespace) -> None:
         nonlocal completed
         async with sem:
             t0 = time.perf_counter()
@@ -583,8 +661,8 @@ async def run_eval(
                 )
                 return
 
-            output = None
-            err = None
+            output: Any = None
+            err: str | None = None
             attempts = 0
             for attempt in range(max_retries):
                 attempts = attempt + 1
@@ -684,17 +762,22 @@ async def run_eval(
     return summary
 
 
-def _summarize(rows: list[dict], spec: EvalSpec) -> dict:
+def _summarize(rows: list[dict[str, Any]], spec: EvalSpec) -> dict[str, Any]:
     """Run-level aggregates. Generic mean for most metrics; per-eval
     overrides apply the headline aggregations the existing harness uses
     (e.g. extraction's aggregate claim-F1 from total counts, EPD's
     within-factor-2/5, decomposition's mean F1 + exact-set-match rate)."""
     summary: dict[str, Any] = {}
 
-    def _vals(name: str):
+    def _vals(name: str) -> list[Any]:
         return [r["scores"].get(name) for r in rows]
 
-    if spec.dataset == "lca_benchmark_paper_extraction":
+    # Chained datasets carry the same per-item scores as their headline
+    # counterparts, so they must reach the same aggregation branch below rather
+    # than falling through to the generic mean.
+    dataset = _CHAINED_TO_HEADLINE_DATASET.get(spec.dataset, spec.dataset)
+
+    if dataset == "lca_benchmark_paper_extraction":
         summary["claim_f1"] = _score_ext.run_claim_f1(
             matched_counts=_vals("claim_matched"),
             pred_counts=_vals("claim_pred_count"),
@@ -711,7 +794,7 @@ def _summarize(rows: list[dict], spec: EvalSpec) -> dict:
         )
         return summary
 
-    if spec.dataset == "lca_benchmark_paper_epd":
+    if dataset == "lca_benchmark_paper_epd":
         rel_errs = _vals("rel_err")
         summary["within_factor_2"] = _score_epd.run_within_factor_2(rel_errs)
         summary["within_factor_5"] = _score_epd.run_within_factor_5(rel_errs)
@@ -721,10 +804,10 @@ def _summarize(rows: list[dict], spec: EvalSpec) -> dict:
         summary["mean_relative_error"] = _score_epd.run_mean_relative_error(rel_errs)
         return summary
 
-    if spec.dataset == "lca_benchmark_paper_epd_stepwise":
+    if dataset == "lca_benchmark_paper_epd_stepwise":
         return _score_stepwise.summarize_stepwise(rows)
 
-    if spec.dataset == "lca_benchmark_paper_triage":
+    if dataset == "lca_benchmark_paper_triage":
         # Accuracy = mean(correct).
         correct_vals = [
             r["scores"]["correct"]
@@ -756,7 +839,7 @@ def _summarize(rows: list[dict], spec: EvalSpec) -> dict:
         summary["ece"] = _score_cal.run_ece(cal_pairs)
         return summary
 
-    if spec.dataset == "lca_benchmark_paper_mapping":
+    if dataset == "lca_benchmark_paper_mapping":
         summary["mean_exact_match"] = _score_map.run_mean_bool(_vals("exact_match"))
         summary["mean_relevant_substring"] = _score_map.run_mean_bool(
             _vals("relevant_substring")
@@ -771,7 +854,7 @@ def _summarize(rows: list[dict], spec: EvalSpec) -> dict:
         summary["ece"] = _score_cal.run_ece(cal_pairs)
         return summary
 
-    if spec.dataset == "lca_benchmark_paper_decomposition":
+    if dataset == "lca_benchmark_paper_decomposition":
         summary["mean_precision"] = _score_decomp.run_mean_float(_vals("precision"))
         summary["mean_recall"] = _score_decomp.run_mean_float(_vals("recall"))
         summary["mean_f1"] = _score_decomp.run_mean_float(_vals("f1"))

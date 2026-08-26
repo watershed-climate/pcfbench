@@ -5,7 +5,8 @@ Reasoning configs are taken from ``pcfbench.models.registry``.
 
 from __future__ import annotations
 
-from typing import Any
+import os
+from typing import Any, Literal, cast
 
 import httpx
 import tenacity
@@ -30,6 +31,7 @@ from pcfbench.models.registry import (
     ANTHROPIC_MODELS,
     DEEPSEEK_VERTEX_MODELS,
     GEMINI_MODELS,
+    LOCAL_OLLAMA_MODELS,
     OPENAI_MODELS,
     SINGLESHOT_OPENAI_REASONING_EFFORT,
     SINGLESHOT_THINKING_BUDGETS,
@@ -45,6 +47,20 @@ from pcfbench.models.vertex_auth import (
 # Anthropic on Vertex: pin to the "global" region — it's a valid region
 # for every Claude model PCFBench uses (Haiku 4.5 is "global"-only).
 _ANTHROPIC_VERTEX_REGION = "global"
+
+_DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
+
+# Output cap for local models. Every single-shot task submits a small
+# structured payload (one float, one picklist name, or a short claim
+# list), so this is far above any legitimate response; it exists to
+# bound repetition loops, which a 4B model does fall into.
+_LOCAL_MAX_OUTPUT_TOKENS = 4096
+
+
+def _ollama_base_url() -> str:
+    """Where the local Ollama server lives. Override with
+    ``PCFBENCH_OLLAMA_BASE_URL`` to point at a remote or non-default port."""
+    return os.environ.get("PCFBENCH_OLLAMA_BASE_URL", _DEFAULT_OLLAMA_BASE_URL)
 
 
 def _retrying_transport(
@@ -134,21 +150,24 @@ def _build_anthropic(
     return AnthropicModel(
         model_id,
         provider=AnthropicProvider(anthropic_client=vertex_client),
-        settings=AnthropicModelSettings(**settings_kwargs),
+        settings=AnthropicModelSettings(
+            **cast(AnthropicModelSettings, settings_kwargs)
+        ),
     )
 
 
-def _build_openai(model_id: str, *, reasoning_effort: str | None):
+def _build_openai(
+    model_id: str, *, reasoning_effort: str | None
+) -> OpenAIResponsesModel | OpenAIChatModel:
     """Build an OpenAI model. Reasoning models require the Responses API
     (``/v1/responses``) — function-tool calls with reasoning_effort are not
     supported on ``/v1/chat/completions`` for gpt-5.5 et al."""
     if reasoning_effort is not None:
+        effort = cast(Literal["minimal", "low", "medium", "high"], reasoning_effort)
         return OpenAIResponsesModel(
             model_id,
             provider=OpenAIProvider(http_client=_retrying_http_client()),
-            settings=OpenAIResponsesModelSettings(
-                openai_reasoning_effort=reasoning_effort
-            ),
+            settings=OpenAIResponsesModelSettings(openai_reasoning_effort=effort),
         )
     return OpenAIChatModel(
         model_id,
@@ -175,13 +194,67 @@ def _build_gemini(
         settings_kwargs["max_tokens"] = 16000
     return GoogleModel(
         model_id,
-        provider=GoogleProvider(
+        # WHY: GoogleProvider overloads split `vertexai` vs (`project`,
+        # `location`) across separate signatures, but runtime accepts both
+        # together — mypy can't pick the right overload.
+        provider=GoogleProvider(  # type: ignore[call-overload]
             vertexai=True,
             project=vertex_project_id(),
             location="global",
             http_client=_retrying_http_client(),
         ),
-        settings=GoogleModelSettings(**settings_kwargs),
+        settings=GoogleModelSettings(**cast(GoogleModelSettings, settings_kwargs)),
+    )
+
+
+def _build_local_ollama(model_id: str) -> OpenAIChatModel:
+    """Build a locally-served open-weight model via Ollama.
+
+    Ollama exposes an OpenAI-compatible ``/v1`` endpoint, so local models
+    reuse the same ``OpenAIChatModel`` path as the hosted baselines and
+    see byte-identical prompts and tool schemas. The API key is a
+    placeholder: Ollama ignores it, but the OpenAI SDK rejects an empty
+    one.
+
+    ``reasoning_effort="none"`` disables Qwen3.5's default thinking mode.
+    Single-shot PCFBench tasks get no reasoning budget for any model
+    (see ``SINGLESHOT_THINKING_BUDGETS``), and leaving thinking on costs
+    ~9x the completion tokens per item. It travels in ``extra_body``
+    rather than ``openai_reasoning_effort`` because "none" is outside
+    the OpenAI SDK's accepted effort literals.
+
+    ``temperature=0`` + ``seed=0`` + a pinned quantization digest make
+    this row exactly reproducible, unlike the hosted-API rows.
+
+    The output cap is passed twice on purpose. Pydantic AI maps
+    ``max_tokens`` onto the request's ``max_completion_tokens`` field,
+    which Ollama silently ignores; Ollama reads ``max_tokens``. Sending
+    only the setting leaves generation bounded by the context window,
+    and a 4B model that falls into a repetition loop will then decode
+    ~130k tokens (observed: one Task 4 item at 29k tokens and climbing
+    after 30 minutes). The ``extra_body`` copy is the one Ollama
+    honors; the setting is kept in sync so the cap still applies if
+    either side changes which field it reads.
+    """
+    provider = OpenAIProvider(
+        base_url=_ollama_base_url(),
+        api_key="ollama-no-key-required",
+        # Long timeout: a 60k-token Task 4/5 document takes minutes to
+        # prefill on laptop hardware, well past the 120s cloud default.
+        http_client=_retrying_http_client(timeout=1800.0),
+    )
+    return OpenAIChatModel(
+        model_id,
+        provider=provider,
+        settings=OpenAIChatModelSettings(
+            temperature=0.0,
+            seed=0,
+            max_tokens=_LOCAL_MAX_OUTPUT_TOKENS,
+            extra_body={
+                "reasoning_effort": "none",
+                "max_tokens": _LOCAL_MAX_OUTPUT_TOKENS,
+            },
+        ),
     )
 
 
@@ -196,7 +269,9 @@ def _build_deepseek_vertex(model_id: str) -> OpenAIChatModel:
     return OpenAIChatModel(model_id, provider=provider)
 
 
-def build_model(*, model_id: str, agentic: bool):
+def build_model(
+    *, model_id: str, agentic: bool
+) -> AnthropicModel | OpenAIResponsesModel | OpenAIChatModel | GoogleModel:
     """Return a Pydantic AI ``Model`` configured for this model & path."""
     if model_id in ANTHROPIC_MODELS:
         budget = (
@@ -227,6 +302,8 @@ def build_model(*, model_id: str, agentic: bool):
         return _build_gemini(model_id, budget=budget, has_reasoning=has_reasoning)
     if model_id in DEEPSEEK_VERTEX_MODELS:
         return _build_deepseek_vertex(model_id)
+    if model_id in LOCAL_OLLAMA_MODELS:
+        return _build_local_ollama(model_id)
     raise ValueError(f"Unknown model: {model_id}")
 
 
@@ -234,10 +311,10 @@ def build_agent(
     *,
     model_id: str,
     agentic: bool,
-    output_type,
+    output_type: Any,
     system_prompt: str,
-    tools=None,
-    deps_type=None,
+    tools: Any = None,
+    deps_type: Any = None,
 ) -> Agent:
     model = build_model(model_id=model_id, agentic=agentic)
     kwargs: dict[str, Any] = {

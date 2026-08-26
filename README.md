@@ -5,9 +5,6 @@ the operational steps of life-cycle assessment (LCA): bill-of-materials decompos
 mapping triage, ecoinvent process matching, literature extraction of physical input
 rates, and total kgCO₂e prediction against expert-grounded EPDs.
 
-> **Anonymized for NeurIPS 2026 review.** Author and affiliation details are withheld
-> until the camera-ready period.
-
 ## Tasks
 
 | ID | Task | Items | GT claims | Headline metric |
@@ -29,7 +26,7 @@ alongside the task data.
 
 ```bash
 # 1. Clone
-git clone https://github.com/pcfbench-a11y/pcfbench
+git clone https://github.com/watershed-climate/pcfbench
 cd pcfbench
 
 # 2. Install
@@ -179,14 +176,16 @@ Each task JSONL row has the same envelope:
 ## Citation
 
 ```bibtex
-@inproceedings{pcfbench2026,
-  title     = {{PCFBench}: Evaluating LLMs and Agents on Process-Based
-               Product Carbon Footprint Estimation},
-  author    = {Anonymous},
-  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)
-               Datasets and Benchmarks Track},
-  year      = {2026},
-  note      = {Under review}
+@misc{pcfbench2026,
+  title  = {{PCFBench}: A Diagnostic Benchmark for Product Carbon Footprint
+            Estimation},
+  author = {Rao, Krishna and Dumit, Andrew and Ulissi, Shaena and
+            Feintzeig, Jacob and Joyce, P. James and Frank, Daniel and
+            Watson, Steven and Glidden, Jonathan and Dinc, Gizem Ilayda and
+            Kwee, Travis M.},
+  year   = {2026},
+  eprint = {ARXIV_ID_PENDING},
+  archivePrefix = {arXiv}
 }
 ```
 

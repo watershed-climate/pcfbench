@@ -14,6 +14,7 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from google import genai
@@ -54,18 +55,19 @@ def main() -> None:
 
     client = genai.Client(vertexai=True, project=vertex_project_id(), location=LOCATION)
     config = genai_types.EmbedContentConfig(output_dimensionality=OUTPUT_DIM)
-    out: list[np.ndarray | None] = [None] * len(texts)
+    out: list[np.ndarray[Any, Any] | None] = [None] * len(texts)
     t0 = time.time()
     completed = 0
 
-    def _one(idx: int, text: str):
+    def _one(idx: int, text: str) -> tuple[int, np.ndarray[Any, Any] | None]:
         cleaned = text.replace("\n", " ")
         for attempt in range(3):
             try:
                 response = client.models.embed_content(
                     model=GEMINI_MODEL, contents=cleaned, config=config
                 )
-                vec = response.embeddings[0].values
+                embeddings = response.embeddings or []
+                vec = embeddings[0].values
                 arr = np.asarray(vec, dtype=np.float32)
                 # L2-normalise so cosine == dot
                 n = np.linalg.norm(arr)
@@ -80,8 +82,8 @@ def main() -> None:
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         futs = [ex.submit(_one, i, t) for i, t in enumerate(texts)]
-        for f in as_completed(futs):
-            i, vec = f.result()
+        for fut in as_completed(futs):
+            i, vec = fut.result()
             out[i] = vec
             completed += 1
             if completed % 100 == 0:
@@ -90,7 +92,10 @@ def main() -> None:
                     flush=True,
                 )
 
-    embeddings = np.stack(out).astype(np.float32)
+    # All embeds should be present after the retry loop above; assert
+    # narrows the type for np.stack and surfaces missing rows loudly.
+    assert all(o is not None for o in out), "missing embedding rows"
+    embeddings = np.stack([o for o in out if o is not None]).astype(np.float32)
     np.save(_EMBEDDINGS_NPY, embeddings)
     _MODEL_TXT.write_text(GEMINI_MODEL + "\n")
     _EMBEDDINGS_UUIDS_JSON.write_text(json.dumps(uuids))

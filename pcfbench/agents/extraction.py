@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Annotated
+from typing import Annotated, Any
 
 import pydantic as pyd
 from pydantic import Field
@@ -88,7 +88,7 @@ class _Deps:
 async def _submit_extraction(
     ctx: RunContext[_Deps],
     claims: list[ExtractionClaim],
-) -> dict:
+) -> dict[str, Any]:
     ctx.deps.submitted = ExtractionOutput(claims=claims)
     raise SubmitTerminated()
 

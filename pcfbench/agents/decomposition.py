@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
 import pydantic as pyd
 from pydantic_ai import Agent, RunContext
@@ -53,7 +54,7 @@ class _Deps:
 async def _submit_decomposition(
     ctx: RunContext[_Deps],
     components: list[str],
-) -> dict:
+) -> dict[str, Any]:
     ctx.deps.submitted = DecompositionOutput(components=components)
     raise SubmitTerminated()
 
