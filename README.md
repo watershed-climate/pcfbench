@@ -189,7 +189,7 @@ Each task JSONL row has the same envelope:
             Watson, Steven and Glidden, Jonathan and Dinc, Gizem Ilayda and
             Kwee, Travis M.},
   year   = {2026},
-  eprint = {ARXIV_ID_PENDING},
+  eprint = {2608.27716},
   archivePrefix = {arXiv}
 }
 ```
