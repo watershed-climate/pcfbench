@@ -5,6 +5,8 @@ the operational steps of life-cycle assessment (LCA): bill-of-materials decompos
 mapping triage, ecoinvent process matching, literature extraction of physical input
 rates, and total kgCO₂e prediction against expert-grounded EPDs.
 
+Preprint - PCFBench: A Diagnostic Benchmark for Product Carbon Footprint Estimation: https://arxiv.org/abs/2608.27716
+
 ## Tasks
 
 | ID | Task | Items | GT claims | Headline metric |
