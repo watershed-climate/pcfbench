@@ -12,6 +12,9 @@ const SHEET_NAME = 'events';
 const HEADERS = ['ts', 'kind', 'pid', 'name', 'task', 'item_id', 'item', 'answer', 'correct', 'beats', 'faced', 'received_at'];
 const MAX_ROWS_RETURNED = 5000;
 const MAX_CELL_CHARS = 500;
+// Hard ceiling on stored events. Past it, writes are refused so a flood cannot fill the
+// sheet or burn the account's daily Apps Script quota indefinitely.
+const MAX_TOTAL_ROWS = 50000;
 // Optional shared token. If non-empty, POSTs must carry the same value in `token`.
 // It is visible in the page source, so it only stops accidental or drive-by writes.
 const TOKEN = '';
@@ -29,8 +32,12 @@ function eventsSheet_() {
 
 function cell_(v) {
   if (v === null || v === undefined) return '';
-  const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
-  return s.length > MAX_CELL_CHARS ? s.slice(0, MAX_CELL_CHARS) : s;
+  let s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  if (s.length > MAX_CELL_CHARS) s = s.slice(0, MAX_CELL_CHARS);
+  // Sheets treats a value beginning with = + - @ or a tab/CR as a formula. A leading apostrophe
+  // forces text (it is not displayed), so a player cannot plant IMPORTXML/HYPERLINK in the sheet.
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return s;
 }
 
 function doPost(e) {
@@ -46,7 +53,9 @@ function doPost(e) {
   const lock = LockService.getScriptLock();
   lock.waitLock(5000);
   try {
-    eventsSheet_().appendRow(row);
+    const sh = eventsSheet_();
+    if (sh.getLastRow() > MAX_TOTAL_ROWS) return json_({ ok: false, error: 'record full' });
+    sh.appendRow(row);
   } finally {
     lock.releaseLock();
   }
