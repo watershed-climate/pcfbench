@@ -8,7 +8,7 @@ BrightCon 2026 Demo Derby (station DD6) and served from this folder with GitHub 
 
 | File | Purpose |
 | ---- | ------- |
-| `index.html` | The page. All data and styling are inlined, so it needs no build step or server-side code. |
+| `index.html` | The page. Data, styling and fonts are all inlined, so it works from GitHub Pages, from a local file, or as an attachment, and makes no third-party requests. Only the optional sheet backend is contacted. |
 | `demo_data.json` | The per-item results behind the page: eight models across the six scored tasks, plus the expert answers. Reusable on its own. |
 | `sheet-backend/` | Optional Google Apps Script that collects players' answers and flags into one Google Sheet. |
 
@@ -30,6 +30,15 @@ items humans answered, plus a leaderboard and the list of flagged items. It only
 content when the shared record below is configured; without it, answers stay in each
 visitor's browser.
 
+## Sharing it as a file
+
+`index.html` is self-contained. Rename it (for example `PCFBench-Derby.html`), send it
+through Drive or Slack, and it opens from disk in any modern browser with the quiz and
+explorer fully working offline. A player's own record persists in that browser. The
+shared record works from a local file too, as long as the machine is online and the
+sheet endpoint below has been set before the file was shared. Copies cannot be updated
+once sent, so prefer the hosted page when the audience can reach it.
+
 ## Turning on the shared record
 
 Answers and flags are posted to a Google Apps Script bound to a single spreadsheet.
@@ -48,7 +57,10 @@ deployment can touch that one sheet and nothing else in the account.
 5. Copy the deployment's `/exec` URL into `sheetEndpoint` inside
    `window.PCFBENCH_CONFIG` near the top of `index.html`, and commit.
 
-Each answer or flag becomes one row on an `events` tab. The sheet is the export:
+The script validates every field (known event kinds and tasks, bounded lengths and
+integers, a per-player rate limit, a hard cap on total rows) and neutralises any value
+that Sheets would otherwise read as a formula, so a player cannot plant `=IMPORTXML`
+or similar in your sheet. Each answer or flag becomes one row on an `events` tab. The sheet is the export:
 filter or pivot it directly. To change the script later, use
 **Deploy → Manage deployments → Edit → New version** so the URL stays the same.
 
