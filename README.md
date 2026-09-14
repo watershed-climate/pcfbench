@@ -7,6 +7,8 @@ rates, and total kgCO₂e prediction against expert-grounded EPDs.
 
 Preprint - PCFBench: A Diagnostic Benchmark for Product Carbon Footprint Estimation: https://arxiv.org/abs/2608.27716
 
+PCFBench Derby, an interactive results explorer and "beat the model" quiz for LCA practitioners: https://watershed-climate.github.io/pcfbench/
+
 ## Tasks
 
 | ID | Task | Items | GT claims | Headline metric |
